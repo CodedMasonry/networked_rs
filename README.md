@@ -1,2 +1,2 @@
-# networked_rs
+# polycasting
 Experimenting with networking between multiple clients
