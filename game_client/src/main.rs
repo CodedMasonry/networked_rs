@@ -1,55 +1,37 @@
-use std::{io::stdout, time::Duration};
-
-use futures::{future::FutureExt, select, StreamExt};
-use futures_timer::Delay;
-
-use crossterm::{
-    cursor::position,
-    event::{DisableMouseCapture, EnableMouseCapture, Event, EventStream, KeyCode},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode},
-};
+use game_client::app::{App, AppResult};
+use game_client::event::{Event, EventHandler};
+use game_client::handler::handle_key_events;
+use game_client::tui::Tui;
+use std::io;
+use ratatui::backend::CrosstermBackend;
+use ratatui::Terminal;
 
 #[tokio::main]
-async fn main() -> std::io::Result<()> {
-    enable_raw_mode()?;
+async fn main() -> AppResult<()> {
+    // Create an application.
+    let mut app = App::new();
 
-    let mut stdout = stdout();
-    execute!(stdout, EnableMouseCapture)?;
+    // Initialize the terminal user interface.
+    let backend = CrosstermBackend::new(io::stderr());
+    let terminal = Terminal::new(backend)?;
+    let events = EventHandler::new(250);
+    let mut tui = Tui::new(terminal, events);
+    tui.init()?;
 
-    print_events().await;
-
-    execute!(stdout, DisableMouseCapture)?;
-
-    disable_raw_mode()
-}
-
-async fn print_events() {
-    let mut reader = EventStream::new();
-
-    loop {
-        let mut delay = Delay::new(Duration::from_millis(1_000)).fuse();
-        let mut event = reader.next().fuse();
-
-        select! {
-            _ = delay => { println!(".\r"); },
-            maybe_event = event => {
-                match maybe_event {
-                    Some(Ok(event)) => {
-                        println!("Event::{:?}\r", event);
-
-                        if event == Event::Key(KeyCode::Char('c').into()) {
-                            println!("Cursor position: {:?}\r", position());
-                        }
-
-                        if event == Event::Key(KeyCode::Esc.into()) {
-                            break;
-                        }
-                    }
-                    Some(Err(e)) => println!("Error: {:?}\r", e),
-                    None => break,
-                }
-            }
-        };
+    // Start the main loop.
+    while app.running {
+        // Render the user interface.
+        tui.draw(&mut app)?;
+        // Handle events.
+        match tui.events.next().await? {
+            Event::Tick => app.tick(),
+            Event::Key(key_event) => handle_key_events(key_event, &mut app)?,
+            Event::Mouse(_) => {}
+            Event::Resize(_, _) => {}
+        }
     }
+
+    // Exit the user interface.
+    tui.exit()?;
+    Ok(())
 }
